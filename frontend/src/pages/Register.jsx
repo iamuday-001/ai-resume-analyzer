@@ -14,7 +14,7 @@ function Register() {
 
     try {
       const response = await fetch(
-        "https://your-backend-name.onrender.com/register",
+        "https://ai-resume-analyzer-hib8.onrender.com/register",
         {
           method: "POST",
           headers: {

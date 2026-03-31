@@ -50,7 +50,7 @@ function CompleteProfile() {
       formData.append("resume", resume);
 
       const response = await fetch(
-        "https://your-backend-name.onrender.com/upload-resume",
+        "https://ai-resume-analyzer-hib8.onrender.com/upload-resume",
         {
           method: "POST",
           body: formData,

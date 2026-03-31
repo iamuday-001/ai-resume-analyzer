@@ -13,7 +13,7 @@ function Login() {
 
     try {
       const response = await fetch(
-        "https://your-backend-name.onrender.com/login",
+        "https://ai-resume-analyzer-hib8.onrender.com/login",
         {
           method: "POST",
           headers: {
