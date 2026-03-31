@@ -49,10 +49,13 @@ function CompleteProfile() {
       const formData = new FormData();
       formData.append("resume", resume);
 
-      const response = await fetch("http://127.0.0.1:5000/upload-resume", {
-        method: "POST",
-        body: formData,
-      });
+      const response = await fetch(
+        "https://your-backend-name.onrender.com/upload-resume",
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
 
       const data = await response.json();
       console.log("📥 Response from server:", data);
