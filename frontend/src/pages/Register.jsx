@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "./Register.css";
+import API_BASE_URL from "../config";
 
 function Register() {
   const navigate = useNavigate();
@@ -13,20 +14,17 @@ function Register() {
     e.preventDefault();
 
     try {
-      const response = await fetch(
-        "https://ai-resume-analyzer-hib8.onrender.com/register",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name,
-            email,
-            password,
-          }),
+      const response = await fetch(`${API_BASE_URL}/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+        }),
+      });
 
       const data = await response.json();
 

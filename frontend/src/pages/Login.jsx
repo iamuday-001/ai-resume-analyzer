@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "./Login.css";
+import API_BASE_URL from "../config";
 
 function Login() {
   const navigate = useNavigate();
@@ -12,19 +13,16 @@ function Login() {
     e.preventDefault();
 
     try {
-      const response = await fetch(
-        "https://ai-resume-analyzer-hib8.onrender.com/login",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email,
-            password,
-          }),
+      const response = await fetch(`${API_BASE_URL}/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      });
 
       const data = await response.json();
       console.log("Login response:", data);

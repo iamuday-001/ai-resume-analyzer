@@ -1,28 +1,52 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_bcrypt import Bcrypt
-import sqlite3
+from pymongo import MongoClient
 import os
 import pdfplumber
 import google.generativeai as genai
 from dotenv import load_dotenv
 import json
 import re
+from datetime import datetime
 
 # -----------------------------
-# LOAD ENV
+# LOAD ENV VARIABLES
 # -----------------------------
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+MONGODB_URI = os.getenv("MONGODB_URI")
 
 if not GEMINI_API_KEY:
     raise Exception("❌ GEMINI_API_KEY not found in environment variables")
 
-genai.configure(api_key=GEMINI_API_KEY)
+if not MONGODB_URI:
+    raise Exception("❌ MONGODB_URI not found in environment variables")
 
-# Gemini Model
-model = genai.GenerativeModel("models/gemini-2.5-flash")
+# -----------------------------
+# MONGODB CONNECTION
+# -----------------------------
+try:
+    client = MongoClient(MONGODB_URI)
+    # Test connection
+    client.admin.command('ping')
+    print("✅ Connected to MongoDB Atlas")
+    
+    db = client.placement_db
+    users_collection = db.users
+    resumes_collection = db.resumes
+    print("✅ MongoDB collections ready")
+    
+except Exception as e:
+    print(f"❌ MongoDB connection failed: {e}")
+    raise e
+
+# -----------------------------
+# GEMINI SETUP
+# -----------------------------
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("models/gemini-2.5-flash") 
 print("✅ Gemini Initialized")
 
 # -----------------------------
@@ -36,33 +60,11 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # -----------------------------
-# DATABASE
-# -----------------------------
-def init_db():
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        email TEXT UNIQUE,
-        password TEXT
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-
-init_db()
-
-# -----------------------------
-# HEALTH CHECK (IMPORTANT 🔥)
+# HEALTH CHECK
 # -----------------------------
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "API is running 🚀"})
-
 
 # -----------------------------
 # REGISTER
@@ -71,7 +73,6 @@ def home():
 def register():
     try:
         data = request.json
-
         name = data.get("name")
         email = data.get("email")
         password = data.get("password")
@@ -79,27 +80,31 @@ def register():
         if not all([name, email, password]):
             return jsonify({"message": "All fields are required"}), 400
 
+        # Check if user already exists
+        existing_user = users_collection.find_one({"email": email})
+        if existing_user:
+            return jsonify({"message": "Email already exists"}), 400
+
+        # Hash password
         hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
 
-        conn = sqlite3.connect("users.db")
-        cursor = conn.cursor()
+        # Create user document
+        user = {
+            "name": name,
+            "email": email,
+            "password": hashed_password,
+            "created_at": datetime.now()
+        }
 
-        cursor.execute(
-            "INSERT INTO users (name,email,password) VALUES (?,?,?)",
-            (name, email, hashed_password)
-        )
+        # Insert into MongoDB
+        result = users_collection.insert_one(user)
+        print(f"✅ User registered: {email}")
 
-        conn.commit()
-        conn.close()
-
-        return jsonify({"message": "User registered"}), 201
-
-    except sqlite3.IntegrityError:
-        return jsonify({"message": "Email already exists"}), 400
+        return jsonify({"message": "User registered successfully!"}), 201
 
     except Exception as e:
+        print(f"❌ Registration error: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 # -----------------------------
 # LOGIN
@@ -108,33 +113,23 @@ def register():
 def login():
     try:
         data = request.json
-
         email = data.get("email")
         password = data.get("password")
 
-        conn = sqlite3.connect("users.db")
-        cursor = conn.cursor()
+        user = users_collection.find_one({"email": email})
 
-        cursor.execute(
-            "SELECT id,name,email,password FROM users WHERE email=?",
-            (email,)
-        )
-
-        user = cursor.fetchone()
-        conn.close()
-
-        if user and bcrypt.check_password_hash(user[3], password):
+        if user and bcrypt.check_password_hash(user["password"], password):
             return jsonify({
                 "message": "Login successful",
-                "name": user[1],
-                "email": user[2]
+                "name": user["name"],
+                "email": user["email"]
             }), 200
 
         return jsonify({"message": "Invalid credentials"}), 401
 
     except Exception as e:
+        print(f"❌ Login error: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 # -----------------------------
 # JSON EXTRACTOR
@@ -153,7 +148,6 @@ def extract_json_from_text(text):
 
     except Exception as e:
         print("⚠ JSON parsing failed:", e)
-
         return {
             "score": 70,
             "skills": ["Communication", "Problem Solving"],
@@ -170,7 +164,6 @@ def extract_json_from_text(text):
             }
         }
 
-
 # -----------------------------
 # RESUME UPLOAD + AI ANALYSIS
 # -----------------------------
@@ -181,13 +174,16 @@ def upload_resume():
             return jsonify({"error": "No file uploaded"}), 400
 
         file = request.files["resume"]
+        email = request.form.get("email")
+        
+        if not email:
+            return jsonify({"error": "User email required"}), 400
 
         if file.filename == "":
             return jsonify({"error": "No file selected"}), 400
 
         filename = file.filename.replace(" ", "_")
         filepath = os.path.join(UPLOAD_FOLDER, filename)
-
         file.save(filepath)
 
         resume_text = ""
@@ -200,11 +196,10 @@ def upload_resume():
                     resume_text += text + "\n"
 
         if not resume_text.strip():
+            os.remove(filepath)
             return jsonify({"error": "Could not read PDF"}), 400
 
-        # -----------------------------
         # AI PROMPT
-        # -----------------------------
         prompt = f"""
 You are an expert Resume Analyzer and Career Advisor.
 
@@ -236,12 +231,27 @@ Return ONLY JSON.
 
         # Gemini call
         response = model.generate_content(prompt)
-
         analysis_data = extract_json_from_text(response.text)
+
+        # Save to MongoDB
+        resume_doc = {
+            "email": email,
+            "filename": filename,
+            "analysis": analysis_data,
+            "uploaded_at": datetime.now()
+        }
+
+        resumes_collection.update_one(
+            {"email": email},
+            {"$set": resume_doc},
+            upsert=True
+        )
 
         # Delete file after processing
         if os.path.exists(filepath):
             os.remove(filepath)
+
+        print(f"✅ Resume analyzed for: {email}")
 
         return jsonify({
             "success": True,
@@ -250,6 +260,8 @@ Return ONLY JSON.
 
     except Exception as e:
         print("❌ ERROR:", str(e))
+        import traceback
+        traceback.print_exc()
 
         if 'filepath' in locals() and os.path.exists(filepath):
             os.remove(filepath)
@@ -259,9 +271,25 @@ Return ONLY JSON.
             "details": str(e)
         }), 500
 
+# -----------------------------
+# GET USER ANALYSIS
+# -----------------------------
+@app.route("/get-analysis/<email>", methods=["GET"])
+def get_analysis(email):
+    try:
+        resume = resumes_collection.find_one({"email": email})
+        if resume:
+            return jsonify({
+                "success": True,
+                "analysis": resume["analysis"]
+            })
+        else:
+            return jsonify({"success": False, "message": "No resume found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # -----------------------------
 # RUN SERVER
 # -----------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=True)

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./CompleteProfile.css";
+import API_BASE_URL from "../config";
 
 function CompleteProfile() {
   const [resume, setResume] = useState(null);
@@ -46,31 +47,36 @@ function CompleteProfile() {
     setLoading(true);
 
     try {
+      // Get user data from localStorage
+      const userData = localStorage.getItem("user");
+      const user = userData ? JSON.parse(userData) : null;
+
+      if (!user || !user.email) {
+        setError("User not found. Please login again.");
+        setLoading(false);
+        return;
+      }
+
       const formData = new FormData();
       formData.append("resume", resume);
+      formData.append("email", user.email); // ✅ ADD EMAIL HERE
+      formData.append("name", user.name || ""); // Optional: add name too
 
-      const response = await fetch(
-        "https://ai-resume-analyzer-hib8.onrender.com/upload-resume",
-        {
-          method: "POST",
-          body: formData,
-        },
-      );
+      console.log("📤 Uploading resume for:", user.email);
+
+      const response = await fetch(`${API_BASE_URL}/upload-resume`, {
+        method: "POST",
+        body: formData,
+      });
 
       const data = await response.json();
       console.log("📥 Response from server:", data);
 
       if (response.ok && data.success) {
-        // Get current user email
-        const userData = localStorage.getItem("user");
-        if (userData) {
-          const user = JSON.parse(userData);
-
-          // Store analysis with user email as key
-          const analysisKey = `resumeAnalysis_${user.email}`;
-          localStorage.setItem(analysisKey, JSON.stringify(data.analysis));
-          console.log(`✅ Analysis saved for user: ${user.email}`);
-        }
+        // Store analysis with user email as key
+        const analysisKey = `resumeAnalysis_${user.email}`;
+        localStorage.setItem(analysisKey, JSON.stringify(data.analysis));
+        console.log(`✅ Analysis saved for user: ${user.email}`);
 
         setSuccess("✅ Resume analyzed successfully! Redirecting...");
 
@@ -78,7 +84,7 @@ function CompleteProfile() {
           navigate("/dashboard");
         }, 2000);
       } else {
-        setError(data.error || "Upload failed");
+        setError(data.error || data.message || "Upload failed");
         setLoading(false);
       }
     } catch (err) {

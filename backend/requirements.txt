@@ -1,8 +1,9 @@
 flask
 flask-cors
 flask-bcrypt
-PyPDF2
-pdfplumber
-google-generativeai
+pymongo
 python-dotenv
+google-generativeai
+pdfplumber
 gunicorn
+dnspython
