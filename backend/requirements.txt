@@ -2,5 +2,7 @@ flask
 flask-cors
 flask-bcrypt
 PyPDF2
+pdfplumber
 google-generativeai
+python-dotenv
 gunicorn
